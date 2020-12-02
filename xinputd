@@ -9,7 +9,9 @@
                         (open-output-pipe . output-pipe)
                         close-pipe))
              ((ice-9 ftw)
-              #:select (scandir)))
+              #:select (scandir))
+             ((srfi srfi-1)
+              #:select ((delete-duplicates . dedup))))
 
 (define *sleep-time* 5)
 
@@ -36,8 +38,9 @@
     output))
 
 (define (get-devices)
-  (string-split (read-command "xinput list --name-only")
-                #\newline))
+  (dedup
+   (string-split (read-command "xinput list --name-only")
+                 #\newline)))
 
 (define (get-rule-files)
   (let ((files (cddr (scandir *rules-dir*))))
