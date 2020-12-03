@@ -15,11 +15,12 @@
 
 (define *sleep-time* 5)
 
-(define *log* "/tmp/xinputd.log")
+(define *rules-conf*
+  (let ((conf (getenv "XINPUTDC")))
+    (if conf conf
+        (string-append (getenv "HOME") "/.xinputd"))))
 
-(define *rules-dir* (string-append
-                     (getenv "HOME")
-                     "/.config/xinputd"))
+(define *rules* #f)
 
 (define *devices* #f)
 
@@ -32,46 +33,26 @@
     output))
 
 (define (read-file file)
-  (let* ((output (with-input-from-file file
-                   (lambda ()
-                     (read-string)))))
-    output))
+  (with-input-from-file file
+    (lambda ()
+      (read-string))))
 
 (define (get-devices)
   (dedup
    (string-split (read-command "xinput list --name-only")
                  #\newline)))
 
-(define (get-rule-files)
-  (let ((files (cddr (scandir *rules-dir*))))
-    (if files
-        files
-        (with-output-to-file *log*
-          (lambda ()
-            (error (format #f "~a \"~a\"~%"
-                           "No such directory"
-                           *rules-dir*)))))))
-
-(define (write-to-log applied str)
-  (with-output-to-file *log*
-    (lambda ()
-      (format #t "Rule was ~aapplied: \"~a\"~%"
-              (if applied "" "not ")
-              str))))
-
 (define (apply-rule rule-str)
   (let ((p (output-pipe "sh")))
     (display (string-append rule-str "\n") p)
-    (if (eqv? 0 (status:exit-val (close-pipe p)))
-        (write-to-log #t rule-str)
-        (write-to-log #f rule-str))))
+    (close-pipe p)))
 
 (define (apply-device-rules device)
-  (when (member device (get-rule-files))
-    (let ((rules (filter (lambda (str) (not (equal? str "")))
-                         (string-split (read-file
-                                        (format #f "~a/~a" *rules-dir* device))
-                                       #\newline))))
+  (define *known-devices* (map car *rules*))
+  (when (member device *known-devices*)
+    (let ((rules (map (lambda (rule)
+                        (format #f rule device))
+                      (cadr (assoc device *rules*)))))
       (map apply-rule rules))))
 
 (define (app-loop)
@@ -90,6 +71,7 @@
 
 (define (run-xinputd)
   (set! *devices* (get-devices))
+  (eval-string (read-file *rules-conf*))
   (map apply-device-rules *devices*)
   (app-loop))
 
