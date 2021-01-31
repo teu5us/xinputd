@@ -13,16 +13,10 @@
              ((srfi srfi-1)
               #:select ((delete-duplicates . dedup))))
 
-(define *sleep-time* 5)
-
 (define *rules-conf*
   (let ((conf (getenv "XINPUTDC")))
     (if conf conf
         (string-append (getenv "HOME") "/.xinputd"))))
-
-(define *rules* #f)
-
-(define *devices* #f)
 
 (define (read-command command)
   (let* ((p (input-pipe command))
@@ -42,37 +36,39 @@
    (string-split (read-command "xinput list --name-only")
                  #\newline)))
 
+(define (get-rules)
+  (eval-string (read-file *rules-conf*)))
+
 (define (apply-rule rule-str)
   (let ((p (output-pipe "sh")))
     (display (string-append rule-str "\n") p)
     (close-pipe p)))
 
 (define (apply-device-rules device)
-  (define *known-devices* (map car *rules*))
-  (when (member device *known-devices*)
-    (let ((rules (map (lambda (rule)
-                        (format #f rule device))
-                      (cadr (assoc device *rules*)))))
-      (map apply-rule rules))))
+  (let* ((+rules+ (get-rules))
+         (*known-devices* (map car +rules+)))
+    (when (member device *known-devices*)
+      (let ((device-rules (map (lambda (rule)
+                                 (format #f rule device))
+                               (cadr (assoc device +rules+)))))
+        (map apply-rule device-rules)))))
 
 (define (app-loop)
-  (while #t
-    (sleep *sleep-time*)
-    (let* ((current-devices (get-devices))
-           (devcomp (equal? (length current-devices)
-                            (length *devices*))))
-      (if devcomp
-          (continue)
-          (begin
-            (map apply-device-rules
-                 (filter (lambda (el) (not (member el *devices*)))
-                         current-devices))
-            (set! *devices* current-devices))))))
+  (let ((+devices+ (get-devices)))
+    (while #t
+      (let* ((current-devices (get-devices))
+             (devcomp (equal? (length current-devices)
+                              (length +devices+))))
+        (if devcomp
+            (continue)
+            (begin
+              (map apply-device-rules
+                   (filter (lambda (el) (not (member el +devices+)))
+                           current-devices))
+              (set! +devices+ current-devices))))
+      (sleep 5))))
 
 (define (run-xinputd)
-  (set! *devices* (get-devices))
-  (eval-string (read-file *rules-conf*))
-  (map apply-device-rules *devices*)
   (app-loop))
 
 (run-xinputd)
